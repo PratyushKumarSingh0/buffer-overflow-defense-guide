@@ -1,0 +1,11 @@
+# Binary outputs
+bin/
+*.exe
+*.o
+*.out
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
