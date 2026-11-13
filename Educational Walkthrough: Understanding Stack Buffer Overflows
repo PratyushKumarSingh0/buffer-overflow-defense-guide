@@ -1,0 +1,86 @@
+Learning Objectives
+By the end of this lab you should be able to:
+Explain how a stack frame is laid out and why a fixed-size buffer is dangerous.
+Demonstrate control of the instruction pointer (EIP/RIP) in a debugger.
+
+Describe each stage of exploitation and why it works.
+Articulate which modern mitigations break which stage.
+Lab Setup (Isolated Environment)
+A 32-bit Windows VM (or a Linux VM for a 64-bit/pwntools variant).
+Immunity Debugger or gdb/pwndbg.
+A purpose-built vulnerable binary (e.g., compiled with -fno-stack-protector -z execstack -m32 for the learning version).
+Never run this against systems you don't own or have written authorization to test.
+
+Step 1 — Trigger the Crash and Observe the Stack
+Concept: When a function like strcpy(buffer, input) writes past buffer, it climbs the stack: over the saved frame pointer, over the saved return address, and into the caller's frame.
+
+Educational exercise: Send a long string of As. In the debugger, inspect the stack. You should see the saved return address overwritten with 0x41414141.
+This is the "aha" moment — you've proven the return address is attacker-controlled.
+
+Teaching point: A crash is not an exploit. Control of EIP is the precondition; everything after is about what you point it at.
+
+Step 2 — Measure the Offset Precisely
+Concept: You need to know exactly how many bytes separate the start of the buffer from the saved return address.
+
+Educational exercise: Generate a unique cyclic pattern (e.g., msf-pattern_create -l 2000), send it, read the value in EIP from the crash, and 
+compute the offset (msf-pattern_offset). Verify by sending offset × "A" + "BBBB" and confirming EIP = 0x42424242.
+
+Teaching point: Precision matters. Off-by-one in the offset means you overwrite the wrong bytes and get a different, uncontrolled crash.
+
+Step 3 — Map the Bad Characters
+Concept: Many protocols and string functions truncate on certain bytes. Null (\x00) terminates C strings; newline (\x0a) and carriage return (\x0d) break line-based protocols.
+
+Educational exercise: Send a bytearray \x01\x02...\xff, dump the stack in the debugger, and note where the sequence stops or changes.
+Those are your bad characters. Every subsequent payload must avoid them.
+
+Teaching point: This is where beginners lose hours. A payload that "should work" fails silently because one byte in your shellcode or address got mangled.
+
+Step 4 — Redirect Execution (the Classic JMP ESP)
+Concept: On a legacy binary with no DEP/ASLR, you overwrite EIP with the address of a JMP ESP (or CALL ESP, PUSH ESP; RET) instruction. 
+That instruction transfers control to the top of the stack, where your shellcode sits.
+
+Educational exercise: Search loaded modules for the opcode \xff\xe4 (JMP ESP) using mona.py (!mona jmp -r esp -cpb "\x00\x0a\x0d") or ROPgadget. Pick a module
+with no ASLR, no SafeSEH, no bad chars in the address.
+
+Teaching point: This step is the heart of classic exploitation and the clearest illustration of why mitigations exist — every one of those 
+module properties (ASLR, SafeSEH) was added specifically to break this technique.
+
+Step 5 — Assemble the Payload (Conceptually)
+Payload layout:
+
+text
+[ offset padding ]  → fills buffer up to saved return address
+[ JMP ESP address ] → 4 bytes, little-endian, no bad chars
+[ NOP sled        ] → optional, gives decoder room / alignment slack
+[ shellcode       ] → generated with msfvenom, bad chars excluded
+Educational exercise: Generate a benign payload — e.g., a calc.exe spawner in the lab VM (msfvenom -p windows/exec CMD=calc.exe -b "\x00\x0a\x0d" -f python) — so you can see successful 
+exploitation without doing anything destructive. The point of the lab is to observe the mechanism, not to deploy a payload.
+
+Teaching point: Notice that the shellcode in this design is position-dependent and lives in non-executable memory on any modern system. That's the setup for the next lesson.
+
+Step 6 — Why This Fails on Modern Systems (The Important Part)
+Mitigation	What it does	What it breaks
+DEP/NX	Marks stack non-executable	Shellcode-on-stack approach
+ASLR	Randomizes module/stack addresses	Hardcoded JMP ESP address
+Stack canary	Random value before return address	Detects overflow before return
+SafeSEH / SEHOP	Validates exception handlers	SEH overwrite technique
+Educational exercise: Recompile the same vulnerable program with -fstack-protector-strong and -z noexecstack, rerun the exploit, and document exactly 
+where it now fails. This is the most valuable part of the lab: seeing a technique die in real time teaches you why the mitigations were invented.
+
+Follow-On Topics Worth Studying
+ROP (Return-Oriented Programming): chaining existing gadgets to defeat DEP.
+ret2libc: calling system() from libc.
+Info leaks: defeating ASLR by reading a leaked pointer.
+Format string vulnerabilities: a separate, related memory-corruption class.
+Heap overflows: different layout, same corruption principle.
+
+Deliverable for Your Course
+If this is for a class, the expected writeup is:
+The stack diagram before/after overflow.
+The exact offset and how you derived it.
+The bad-character table and justification.
+The module you selected for JMP ESP and its security properties.
+
+Screenshot of controlled EIP.
+A section on how each mitigation would break the exploit.
+That document is what demonstrates you understand the vulnerability — not the payload itself.
