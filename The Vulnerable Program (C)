@@ -1,0 +1,23 @@
+++First, you need the vulnerable program to exploit. Save this as vuln.c. It has a classic buffer overflow: it reads 100 bytes into a 64-byte buffer without checking the size.
+
+// vuln.c
+#include <stdio.h>
+#include <string.h>
+
+void vulnerable_function() {
+    char buffer[64]; // Small buffer
+    printf("Buffer address: %p\n", (void*)buffer);
+    gets(buffer); // No bounds checking!
+    printf("You said: %s\n", buffer);
+}
+
+int main() {
+    vulnerable_function();
+    return 0;
+}
+
+++Compile it with protections disabled so the exploit works reliably:
+gcc -m32 -fno-stack-protector -z execstack -o vuln vuln.c
+-m32: 32-bit architecture (simpler offset calculations).
+-fno-stack-protector: Disables canaries.
+-z execstack: Makes the stack executable (so we can run shellcode there).
